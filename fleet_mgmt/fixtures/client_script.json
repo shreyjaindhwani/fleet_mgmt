@@ -1,0 +1,52 @@
+[
+ {
+  "docstatus": 0,
+  "doctype": "Client Script",
+  "dt": "Trip",
+  "enabled": 1,
+  "module": "Fleet Management",
+  "name": "Trip Form Script",
+  "script": "frappe.ui.form.on(\"Trip\", {\n\tsetup(frm) {\n\t\tfrm.set_query(\"vehicle\", () => ({\n\t\t\tfilters: { status: [\"not in\", [\"Inactive\", \"Maintenance\"]] }\n\t\t}));\n\t\tfrm.set_query(\"driver\", () => ({ filters: { status: \"Active\" } }));\n\t\tfrm.set_query(\"origin\", () => ({ filters: { is_active: 1 } }));\n\t\tfrm.set_query(\"destination\", () => ({ filters: { is_active: 1 } }));\n\t},\n\n\trefresh(frm) {\n\t\tfrm.dashboard.clear_headline_alert();\n\t\tif (!frm.is_new()) {\n\t\t\tfrm.trigger(\"render_status_banner\");\n\t\t\tfrm.trigger(\"render_custom_buttons\");\n\t\t}\n\t\tfrm.trigger(\"calculate_total_expenses\");\n\t},\n\n\trender_status_banner(frm) {\n\t\tconst color_map = {\n\t\t\t\"Draft\": \"grey\",\n\t\t\t\"Pending Approval\": \"orange\",\n\t\t\t\"Approved\": \"blue\",\n\t\t\t\"In Progress\": \"cyan\",\n\t\t\t\"Completed\": \"green\",\n\t\t\t\"Rejected\": \"red\",\n\t\t\t\"Cancelled\": \"darkgrey\"\n\t\t};\n\t\tif (frm.doc.status) {\n\t\t\tfrm.dashboard.set_headline_alert(__(\"Trip Status: <b>{0}</b>\", [frm.doc.status]), color_map[frm.doc.status] || \"blue\");\n\t\t}\n\t},\n\n\trender_custom_buttons(frm) {\n\t\tconst status = frm.doc.status;\n\t\tif (status === \"Draft\") {\n\t\t\tfrm.add_custom_button(__(\"Submit for Approval\"), () => {\n\t\t\t\tfrappe.confirm(__(\"Submit trip for approval?\"), () => {\n\t\t\t\t\tfrm.set_value(\"status\", \"Pending Approval\");\n\t\t\t\t\tfrm.save();\n\t\t\t\t});\n\t\t\t}, __(\"Workflow\")).addClass(\"btn-primary\");\n\t\t}\n\t\tif (status === \"Pending Approval\") {\n\t\t\tfrm.add_custom_button(__(\"Approve Trip\"), () => {\n\t\t\t\tfrm.set_value(\"status\", \"Approved\");\n\t\t\t\tfrm.save();\n\t\t\t}, __(\"Workflow\")).addClass(\"btn-success\");\n\t\t\tfrm.add_custom_button(__(\"Reject Trip\"), () => {\n\t\t\t\tfrappe.prompt([{ fieldname: \"reason\", fieldtype: \"Small Text\", label: __(\"Rejection Reason\"), reqd: 1 }], (vals) => {\n\t\t\t\t\tfrm.set_value(\"remarks\", (frm.doc.remarks ? frm.doc.remarks + \"\\n\" : \"\") + \"Rejection reason: \" + vals.reason);\n\t\t\t\t\tfrm.set_value(\"status\", \"Rejected\");\n\t\t\t\t\tfrm.save();\n\t\t\t\t}, __(\"Reject Trip\"));\n\t\t\t}, __(\"Workflow\")).addClass(\"btn-danger\");\n\t\t}\n\t\tif (status === \"Approved\") {\n\t\t\tfrm.add_custom_button(__(\"Dispatch Vehicle\"), () => {\n\t\t\t\tfrappe.prompt([\n\t\t\t\t\t{ fieldname: \"actual_start\", fieldtype: \"Datetime\", label: __(\"Actual Start Time\"), default: frappe.datetime.now_datetime(), reqd: 1 },\n\t\t\t\t\t{ fieldname: \"opening_odometer\", fieldtype: \"Float\", label: __(\"Opening Odometer (km)\"), default: frm.doc.opening_odometer || 0, reqd: 1 }\n\t\t\t\t], (vals) => {\n\t\t\t\t\tfrm.set_value(\"status\", \"In Progress\");\n\t\t\t\t\tfrm.set_value(\"actual_start\", vals.actual_start);\n\t\t\t\t\tfrm.set_value(\"opening_odometer\", vals.opening_odometer);\n\t\t\t\t\tfrm.save();\n\t\t\t\t}, __(\"Dispatch Vehicle\"));\n\t\t\t}, __(\"Actions\")).addClass(\"btn-primary\");\n\t\t}\n\t\tif (status === \"In Progress\") {\n\t\t\tfrm.add_custom_button(__(\"Complete Trip\"), () => {\n\t\t\t\tfrappe.prompt([\n\t\t\t\t\t{ fieldname: \"actual_end\", fieldtype: \"Datetime\", label: __(\"Actual End Time\"), default: frappe.datetime.now_datetime(), reqd: 1 },\n\t\t\t\t\t{ fieldname: \"closing_odometer\", fieldtype: \"Float\", label: __(\"Closing Odometer (km)\"), default: frm.doc.opening_odometer || 0, reqd: 1 }\n\t\t\t\t], (vals) => {\n\t\t\t\t\tif (flt(vals.closing_odometer) < flt(frm.doc.opening_odometer)) {\n\t\t\t\t\t\tfrappe.msgprint(__(\"Closing odometer cannot be less than opening odometer ({0} km).\", [frm.doc.opening_odometer]));\n\t\t\t\t\t\treturn;\n\t\t\t\t\t}\n\t\t\t\t\tfrm.set_value(\"status\", \"Completed\");\n\t\t\t\t\tfrm.set_value(\"actual_end\", vals.actual_end);\n\t\t\t\t\tfrm.set_value(\"closing_odometer\", vals.closing_odometer);\n\t\t\t\t\tfrm.trigger(\"calculate_distance\");\n\t\t\t\t\tfrm.save();\n\t\t\t\t}, __(\"Complete Trip\"));\n\t\t\t}, __(\"Actions\")).addClass(\"btn-success\");\n\t\t}\n\t},\n\n\topening_odometer(frm) { frm.trigger(\"calculate_distance\"); },\n\tclosing_odometer(frm) { frm.trigger(\"calculate_distance\"); },\n\tcalculate_distance(frm) {\n\t\tif (frm.doc.opening_odometer != null && frm.doc.closing_odometer != null) {\n\t\t\tconst diff = flt(frm.doc.closing_odometer) - flt(frm.doc.opening_odometer);\n\t\t\tfrm.set_value(\"distance_travelled\", diff >= 0 ? diff : 0);\n\t\t}\n\t},\n\tcalculate_total_expenses(frm) {\n\t\tlet total = 0;\n\t\t(frm.doc.trip_expenses || []).forEach((row) => { total += flt(row.amount); });\n\t\tif (total > 0 && !frm.is_new()) {\n\t\t\tfrm.dashboard.set_headline_alert(__(\"Total Trip Expenses: <b>{0}</b>\", [format_currency(total)]), \"blue\");\n\t\t}\n\t}\n});",
+  "view": "Form"
+ },
+ {
+  "docstatus": 0,
+  "doctype": "Client Script",
+  "dt": "Vehicle",
+  "enabled": 1,
+  "module": "Fleet Management",
+  "name": "Vehicle Form Script",
+  "script": "frappe.ui.form.on(\"Vehicle\", {\n\trefresh(frm) {\n\t\tfrm.dashboard.clear_headline_alert();\n\t\tif (frm.is_new()) return;\n\n\t\tconst alerts = {\n\t\t\t\"Available\": { msg: __(\"Vehicle is Available for dispatch\"), color: \"green\" },\n\t\t\t\"On Trip\": { msg: __(\"Vehicle is currently On Trip\"), color: \"blue\" },\n\t\t\t\"Maintenance\": { msg: __(\"Vehicle is under Maintenance\"), color: \"orange\" },\n\t\t\t\"Inactive\": { msg: __(\"Vehicle is Inactive\"), color: \"red\" }\n\t\t};\n\t\tif (frm.doc.status && alerts[frm.doc.status]) {\n\t\t\tfrm.dashboard.set_headline_alert(alerts[frm.doc.status].msg, alerts[frm.doc.status].color);\n\t\t}\n\t\tif (frm.doc.status === \"Available\") {\n\t\t\tfrm.add_custom_button(__(\"Create Trip\"), () => {\n\t\t\t\tfrappe.new_doc(\"Trip\", { vehicle: frm.doc.name, opening_odometer: frm.doc.current_odometer || 0 });\n\t\t\t}, __(\"Actions\"));\n\t\t}\n\t\tfrm.add_custom_button(__(\"View Trips\"), () => {\n\t\t\t\tfrappe.set_route(\"List\", \"Trip\", { vehicle: frm.doc.name });\n\t\t\t}, __(\"Navigation\"));\n\t},\n\n\tregistration_number(frm) {\n\t\tif (frm.doc.registration_number) {\n\t\t\tfrm.set_value(\"registration_number\", frm.doc.registration_number.toUpperCase().trim());\n\t\t}\n\t}\n});",
+  "view": "Form"
+ },
+ {
+  "docstatus": 0,
+  "doctype": "Client Script",
+  "dt": "Driver",
+  "enabled": 1,
+  "module": "Fleet Management",
+  "name": "Driver Form Script",
+  "script": "frappe.ui.form.on(\"Driver\", {\n\trefresh(frm) {\n\t\tfrm.dashboard.clear_headline_alert();\n\t\tif (frm.is_new()) return;\n\n\t\tif (frm.doc.status) {\n\t\t\tconst colors = { \"Active\": \"green\", \"Inactive\": \"red\", \"Suspended\": \"orange\" };\n\t\t\tfrm.dashboard.set_headline_alert(__(\"Driver Status: <b>{0}</b>\", [frm.doc.status]), colors[frm.doc.status] || \"blue\");\n\t\t}\n\t\tif (frm.doc.license_expiry_date) {\n\t\t\tconst days = frappe.datetime.get_diff(frm.doc.license_expiry_date, frappe.datetime.get_today());\n\t\t\tif (days < 0) {\n\t\t\t\tfrm.dashboard.set_headline_alert(__(\"Driver Licence is EXPIRED ({0} days ago)\", [Math.abs(days)]), \"red\");\n\t\t\t} else if (days <= 30) {\n\t\t\t\tfrm.dashboard.set_headline_alert(__(\"Driver Licence expires soon (in {0} days)\", [days]), \"orange\");\n\t\t\t}\n\t\t}\n\t\tif (frm.doc.status === \"Active\") {\n\t\t\tfrm.add_custom_button(__(\"Create Trip\"), () => {\n\t\t\t\tfrappe.new_doc(\"Trip\", { driver: frm.doc.name });\n\t\t\t}, __(\"Actions\"));\n\t\t}\n\t\tfrm.add_custom_button(__(\"View Assigned Trips\"), () => {\n\t\t\t\tfrappe.set_route(\"List\", \"Trip\", { driver: frm.doc.name });\n\t\t\t}, __(\"Navigation\"));\n\t},\n\n\tlicense_expiry_date(frm) {\n\t\tif (frm.doc.license_expiry_date) {\n\t\t\tconst days = frappe.datetime.get_diff(frm.doc.license_expiry_date, frappe.datetime.get_today());\n\t\t\tif (days < 0) {\n\t\t\t\tfrappe.msgprint({ title: __(\"Licence Expired\"), indicator: \"red\", message: __(\"The licence expiry date is in the past ({0}).\", [frm.doc.license_expiry_date]) });\n\t\t\t} else if (days <= 30) {\n\t\t\t\tfrappe.show_alert({ message: __(\"Warning: Licence expires soon in {0} days.\", [days]), indicator: \"orange\" });\n\t\t\t}\n\t\t}\n\t},\n\n\tlicense_number(frm) {\n\t\tif (frm.doc.license_number) {\n\t\t\tfrm.set_value(\"license_number\", frm.doc.license_number.toUpperCase().trim());\n\t\t}\n\t}\n});",
+  "view": "Form"
+ },
+ {
+  "docstatus": 0,
+  "doctype": "Client Script",
+  "dt": "Maintenance Request",
+  "enabled": 1,
+  "module": "Fleet Management",
+  "name": "Maintenance Request Form Script",
+  "script": "frappe.ui.form.on(\"Maintenance Request\", {\n\trefresh(frm) {\n\t\tfrm.dashboard.clear_headline_alert();\n\t\tif (frm.is_new()) return;\n\n\t\tif (frm.doc.status) {\n\t\t\tconst colors = { \"Open\": \"orange\", \"In Progress\": \"blue\", \"Completed\": \"green\", \"Cancelled\": \"grey\" };\n\t\t\tfrm.dashboard.set_headline_alert(__(\"Status: <b>{0}</b> (Priority: {1})\", [frm.doc.status, frm.doc.priority || \"Medium\"]), colors[frm.doc.status] || \"blue\");\n\t\t}\n\t\tif (frm.doc.status === \"Open\" || frm.doc.status === \"In Progress\") {\n\t\t\tfrm.add_custom_button(__(\"Complete Maintenance\"), () => {\n\t\t\t\tfrappe.prompt([\n\t\t\t\t\t{ fieldname: \"resolution_notes\", fieldtype: \"Text\", label: __(\"Resolution Notes\"), reqd: 1, default: frm.doc.resolution_notes || \"\" },\n\t\t\t\t\t{ fieldname: \"cost\", fieldtype: \"Currency\", label: __(\"Total Cost\"), default: frm.doc.cost || 0 }\n\t\t\t\t], (vals) => {\n\t\t\t\t\tfrm.set_value(\"status\", \"Completed\");\n\t\t\t\t\tfrm.set_value(\"resolution_notes\", vals.resolution_notes);\n\t\t\t\t\tfrm.set_value(\"cost\", vals.cost);\n\t\t\t\t\tfrm.save();\n\t\t\t\t}, __(\"Complete Maintenance\"));\n\t\t\t}, __(\"Actions\")).addClass(\"btn-success\");\n\t\t}\n\t}\n});",
+  "view": "Form"
+ },
+ {
+  "docstatus": 0,
+  "doctype": "Client Script",
+  "dt": "Fleet Location",
+  "enabled": 1,
+  "module": "Fleet Management",
+  "name": "Fleet Location Form Script",
+  "script": "frappe.ui.form.on(\"Fleet Location\", {\n\trefresh(frm) {\n\t\tfrm.dashboard.clear_headline_alert();\n\t\tif (frm.is_new()) return;\n\n\t\tif (!frm.doc.is_active) {\n\t\t\tfrm.dashboard.set_headline_alert(__(\"Location is Inactive\"), \"red\");\n\t\t} else {\n\t\t\tfrm.dashboard.set_headline_alert(__(\"Location is Active\"), \"green\");\n\t\t}\n\t}\n});",
+  "view": "Form"
+ }
+]
