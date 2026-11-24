@@ -6,6 +6,13 @@ from frappe.model.document import Document
 
 
 class FleetLocation(Document):
+	def before_naming(self):
+		# autoname is "field:location_code", so the name is taken from
+		# location_code *before* validate runs, and Frappe then syncs the
+		# field back from the name (_sync_autoname_field). Normalise here
+		# so the document name itself is upper-case.
+		self.normalize_fields()
+
 	def validate(self):
 		self.normalize_fields()
 

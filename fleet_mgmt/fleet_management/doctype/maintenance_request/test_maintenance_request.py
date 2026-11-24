@@ -39,6 +39,10 @@ class TestMaintenanceRequest(FrappeTestCase):
 		req.resolution_notes = ""
 		self.assertRaises(frappe.ValidationError, req.save)
 
+		# A failed save has already bumped req.modified in memory, so the next
+		# save would hit TimestampMismatchError. Reload, as a user would.
+		req.reload()
+		req.status = "Completed"
 		req.resolution_notes = "Engine oil replaced, brake pads checked."
 		req.save()
 
